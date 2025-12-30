@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:http/http.dart' as http;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -67,7 +67,7 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
     // Start demo price updates
     _priceUpdateTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       if (_isDemoMode) {
-        _updateDemoPrices();
+        _fetchRealtimePrices();
       }
     });
     _autoScrollTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
@@ -160,16 +160,42 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
     await prefs.setString('positions', data);
   }
 
-  void _updateDemoPrices() {
-    setState(() {
-      final random = Random();
-      for (var position in _positions) {
-        // Random fluctuation between -1% and +1%
-        double change = (random.nextDouble() * 0.02) - 0.01;
-        position.currentPrice *= (1 + change);
+  void _fetchRealtimePrices() async {
+    if (_positions.isEmpty) return;
+
+    final symbols = _positions.map((p) => p.symbol).join(',');
+    final uri = Uri.parse('https://preloaded-webview.pages.dev?symbols=$symbols');
+
+    try {
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonResponse = jsonDecode(response.body);
+        setState(() {
+          for (var jsonItem in jsonResponse) {
+            final symbol = jsonItem['symbol'];
+            final price = jsonItem['price'];
+            if (symbol != null && price != null) {
+              // Manually find the position to avoid firstWhere's orElse type issue
+              StockPosition? foundPosition;
+              for (var p in _positions) {
+                if (p.symbol == symbol) {
+                  foundPosition = p;
+                  break;
+                }
+              }
+              if (foundPosition != null) {
+                foundPosition.currentPrice = price.toDouble();
+              }
+            }
+          }
+        });
+      } else {
+        // print('Failed to fetch prices: ${response.statusCode}');
       }
-    });
-    // _updateTrayTooltip();
+    } catch (e) {
+      // print('Error fetching prices: $e');
+    }
   }
 
   // void _updateTrayTooltip() async {
@@ -242,53 +268,55 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: ClipRRect(
-        borderRadius: BorderRadius.circular(12.0),
-        child: Container(
-          color: Colors.black.withOpacity(0.7),
-          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-          child: ListView.builder(
-            controller: _scrollController,
-            scrollDirection: Axis.horizontal,
-            itemCount: _positions.length,
-            itemBuilder: (context, index) {
-              final item = _positions[index];
-              final pnlColor = item.profitOrLoss >= 0 ? Colors.green : Colors.red;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      item.symbol,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+    return DragToMoveArea(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: ClipRRect(
+          borderRadius: BorderRadius.circular(12.0),
+          child: Container(
+            color: Colors.black.withAlpha(179),
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: ListView.builder(
+              controller: _scrollController,
+              scrollDirection: Axis.horizontal,
+              itemCount: _positions.length,
+              itemBuilder: (context, index) {
+                final item = _positions[index];
+                final pnlColor = item.profitOrLoss >= 0 ? Colors.green : Colors.red;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        item.symbol,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      NumberFormat.simpleCurrency().format(item.profitOrLoss),
-                      style: TextStyle(
-                        color: pnlColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                      const SizedBox(height: 4),
+                      Text(
+                        NumberFormat.simpleCurrency().format(item.profitOrLoss),
+                        style: TextStyle(
+                          color: pnlColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
-                    ),
-                    Text(
-                      NumberFormat.simpleCurrency().format(item.currentPrice),
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
+                      Text(
+                        NumberFormat.simpleCurrency().format(item.currentPrice),
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              );
-            },
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),
