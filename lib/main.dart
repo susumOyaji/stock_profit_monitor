@@ -56,6 +56,7 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
   Timer? _autoScrollTimer;
   bool _isWindowVisible = true;
   bool _isDemoMode = true;
+  String? _lastJsonResponse;
 
   @override
   void initState() {
@@ -81,6 +82,7 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
     Menu menu = Menu(
       items: [
         MenuItem(key: 'toggle_demo', label: 'Toggle Demo Mode'),
+        MenuItem(key: 'show_json', label: 'Show Raw JSON'),
         MenuItem.separator(),
         MenuItem(key: 'exit_app', label: 'Exit'),
       ],
@@ -130,10 +132,54 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
       setState(() {
         _isDemoMode = !_isDemoMode;
       });
+    } else if (menuItem.key == 'show_json') {
+      _showJsonDialog();
     } else if (menuItem.key == 'exit_app') {
       windowManager.destroy();
     }
   }
+
+  void _showJsonDialog() async {
+    final originalSize = await windowManager.getSize();
+    await windowManager.setSize(const Size(600, 400));
+
+    String formattedJson = 'No data received yet.';
+    if (_lastJsonResponse != null) {
+      try {
+        final jsonObject = jsonDecode(_lastJsonResponse!);
+        formattedJson = const JsonEncoder.withIndent('  ').convert(jsonObject);
+      } catch (e) {
+        formattedJson = 'Error formatting JSON:\n$e';
+      }
+    }
+
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Last JSON Response'),
+          content: Scrollbar(
+            child: SingleChildScrollView(
+              child: Text(formattedJson),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Close'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+
+    await windowManager.setSize(originalSize);
+  }
+
 
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
@@ -147,18 +193,14 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
       // Add default dummy data
       setState(() {
         _positions = [
-          StockPosition(symbol: 'AAPL', quantity: 10, purchasePrice: 150.0, currentPrice: 155.0),
-          StockPosition(symbol: 'GOOGL', quantity: 5, purchasePrice: 2800.0, currentPrice: 2750.0),
+          StockPosition(symbol: '^DJI', quantity: 1, purchasePrice: 35000.0, currentPrice: 35500.0, currency: 'USD'),
+          StockPosition(symbol: '998407.O', quantity: 100, purchasePrice: 2500.0, currentPrice: 2550.0, currency: 'JPY'),
         ];
       });
     }
   }
 
-  Future<void> _saveData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String data = jsonEncode(_positions.map((e) => e.toJson()).toList());
-    await prefs.setString('positions', data);
-  }
+
 
   void _fetchRealtimePrices() async {
     if (_positions.isEmpty) return;
@@ -170,6 +212,10 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
       final response = await http.get(uri);
 
       if (response.statusCode == 200) {
+        setState(() {
+          _lastJsonResponse = response.body;
+        });
+
         final List<dynamic> jsonResponse = jsonDecode(response.body);
         setState(() {
           for (var jsonItem in jsonResponse) {
@@ -245,26 +291,7 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
     );
   }
 
-  void _addPosition(String symbol, int qty, double price) {
-    setState(() {
-      _positions.add(
-        StockPosition(
-          symbol: symbol,
-          quantity: qty,
-          purchasePrice: price,
-          currentPrice: price, // Initially same
-        ),
-      );
-    });
-    _saveData();
-  }
 
-  void _removePosition(int index) {
-    setState(() {
-      _positions.removeAt(index);
-    });
-    _saveData();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -298,7 +325,7 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        NumberFormat.simpleCurrency().format(item.profitOrLoss),
+                        NumberFormat.simpleCurrency(name: item.currency).format(item.profitOrLoss),
                         style: TextStyle(
                           color: pnlColor,
                           fontWeight: FontWeight.bold,
@@ -306,7 +333,7 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
                         ),
                       ),
                       Text(
-                        NumberFormat.simpleCurrency().format(item.currentPrice),
+                        NumberFormat.simpleCurrency(name: item.currency).format(item.currentPrice),
                         style: const TextStyle(
                           color: Colors.grey,
                           fontSize: 12,
@@ -330,12 +357,14 @@ class StockPosition {
   int quantity;
   double purchasePrice;
   double currentPrice;
+  final String currency;
 
   StockPosition({
     required this.symbol,
     required this.quantity,
     required this.purchasePrice,
     required this.currentPrice,
+    required this.currency,
   });
 
   double get profitOrLoss => (currentPrice - purchasePrice) * quantity;
@@ -345,6 +374,7 @@ class StockPosition {
     'quantity': quantity,
     'purchasePrice': purchasePrice,
     'currentPrice': currentPrice,
+    'currency': currency,
   };
 
   factory StockPosition.fromJson(Map<String, dynamic> json) {
@@ -353,6 +383,7 @@ class StockPosition {
       quantity: json['quantity'],
       purchasePrice: json['purchasePrice'],
       currentPrice: json['currentPrice'],
+      currency: json['currency'] ?? 'USD', // Default to USD if currency is not specified
     );
   }
 }
