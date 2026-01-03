@@ -13,7 +13,7 @@ void main() async {
   await windowManager.ensureInitialized();
 
   WindowOptions windowOptions = const WindowOptions(
-    size: Size(400, 80),
+    size: Size(400, 100),
     center: true,
     skipTaskbar: true,
     titleBarStyle: TitleBarStyle.hidden,
@@ -160,11 +160,7 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Last JSON Response'),
-          content: Scrollbar(
-            child: SingleChildScrollView(
-              child: Text(formattedJson),
-            ),
-          ),
+          content: Scrollbar(child: SingleChildScrollView(child: Text(formattedJson))),
           actions: <Widget>[
             TextButton(
               child: const Text('Close'),
@@ -180,7 +176,6 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
     await windowManager.setSize(originalSize);
   }
 
-
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     final String? data = prefs.getString('positions');
@@ -194,19 +189,23 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
       setState(() {
         _positions = [
           StockPosition(symbol: '^DJI', quantity: 1, purchasePrice: 35000.0, currentPrice: 35500.0, currency: 'USD'),
-          StockPosition(symbol: '998407.O', quantity: 100, purchasePrice: 2500.0, currentPrice: 2550.0, currency: 'JPY'),
+          StockPosition(
+            symbol: '998407.O',
+            quantity: 100,
+            purchasePrice: 2500.0,
+            currentPrice: 2550.0,
+            currency: 'JPY',
+          ),
         ];
       });
     }
   }
 
-
-
   void _fetchRealtimePrices() async {
     if (_positions.isEmpty) return;
 
     final symbols = _positions.map((p) => p.symbol).join(',');
-    final uri = Uri.parse('https://preloaded-webview.pages.dev?symbols=$symbols');
+    final uri = Uri.parse('https://preloaded_state.sumitomo0210.workers.dev/?code=$symbols');
 
     try {
       final response = await http.get(uri);
@@ -219,19 +218,24 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
         final List<dynamic> jsonResponse = jsonDecode(response.body);
         setState(() {
           for (var jsonItem in jsonResponse) {
-            final symbol = jsonItem['symbol'];
-            final price = jsonItem['price'];
-            if (symbol != null && price != null) {
-              // Manually find the position to avoid firstWhere's orElse type issue
-              StockPosition? foundPosition;
-              for (var p in _positions) {
-                if (p.symbol == symbol) {
-                  foundPosition = p;
-                  break;
+            final symbol = jsonItem['code'];
+            final data = jsonItem['data'];
+            if (symbol != null && data != null && data['price'] != null) {
+              final priceStr = data['price'].toString().replaceAll(',', '');
+              final price = double.tryParse(priceStr);
+
+              if (price != null) {
+                // Manually find the position
+                StockPosition? foundPosition;
+                for (var p in _positions) {
+                  if (p.symbol == symbol) {
+                    foundPosition = p;
+                    break;
+                  }
                 }
-              }
-              if (foundPosition != null) {
-                foundPosition.currentPrice = price.toDouble();
+                if (foundPosition != null) {
+                  foundPosition.currentPrice = price;
+                }
               }
             }
           }
@@ -284,14 +288,8 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
       nextScroll = 0;
     }
 
-    _scrollController.animateTo(
-      nextScroll,
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeInOut,
-    );
+    _scrollController.animateTo(nextScroll, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut);
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -301,7 +299,11 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
         body: ClipRRect(
           borderRadius: BorderRadius.circular(12.0),
           child: Container(
-            color: Colors.black.withAlpha(179),
+            decoration: BoxDecoration(
+              color: Colors.black.withAlpha(179),
+              border: Border.all(color: Colors.orange, width: 1.0),
+              borderRadius: BorderRadius.circular(12.0),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 8.0),
             child: ListView.builder(
               controller: _scrollController,
@@ -317,27 +319,16 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
                     children: [
                       Text(
                         item.symbol,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         NumberFormat.simpleCurrency(name: item.currency).format(item.profitOrLoss),
-                        style: TextStyle(
-                          color: pnlColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
+                        style: TextStyle(color: pnlColor, fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                       Text(
                         NumberFormat.simpleCurrency(name: item.currency).format(item.currentPrice),
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 12,
-                        ),
+                        style: const TextStyle(color: Colors.grey, fontSize: 12),
                       ),
                     ],
                   ),
@@ -349,7 +340,6 @@ class _HomePageState extends State<HomePage> with WindowListener, TrayListener {
       ),
     );
   }
-
 }
 
 class StockPosition {
